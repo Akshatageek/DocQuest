@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocQuest - AI-Powered Education Assessment Tool</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <a href="#hero" class="nav-brand">
+                <span class="brand-icon">🧠</span>
+                DocQuest
+            </a>
+            <div class="nav-links">
+                <a href="#features" class="nav-link">Features</a>
+                <a href="#how-it-works" class="nav-link">How It Works</a>
+                <a href="#about" class="nav-link">About</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="hero" class="hero">
+        <div class="hero-container">
+            <div class="hero-content">
+                <div class="hero-badge">✨ AI-Powered Learning</div>
+                <h1 class="hero-title">
+                    Transform PDFs into <span class="gradient-text">Smart Quizzes</span>
+                </h1>
+                <p class="hero-description">
+                    Upload any PDF document and let our advanced AI generate intelligent questions with detailed explanations. Perfect for educators, students, and professionals.
+                </p>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <span class="stat-number" id="questionsCount">{{ stats.total_questions | default(1000) | int | string }}+</span>
+                        <span class="stat-label">Questions Generated</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-number" id="usersCount">{{ stats.total_pdfs | default(50) | int | string }}+</span>
+                        <span class="stat-label">PDFs Processed</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-number" id="accuracyRate">{{ "%.1f" | format(stats.success_rate | default(99) | float) }}%</span>
+                        <span class="stat-label">Accuracy Rate</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="hero-form">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>Get Started Today</h3>
+                        <p>Upload your PDF and generate questions instantly</p>
+                    </div>
+                    
+                    <form action="/generate" method="post" enctype="multipart/form-data" id="uploadForm">
+                        <div class="upload-area">
+                            <label for="pdfInput" class="file-upload" id="fileUpload">
+                                <div class="upload-icon">📄</div>
+                                <div class="upload-text">
+                                    <strong>Click to upload PDF</strong>
+                                    <span>or drag and drop</span>
+                                </div>
+                                <div class="upload-hint">Supports PDF files up to 10MB</div>
+                            </label>
+                            <input type="file" id="pdfInput" name="pdf" accept=".pdf" required>
+                            <div class="file-status" id="fileStatus"></div>
+                        </div>
+                        
+                        <div class="form-options">
+                            <div class="option-group">
+                                <label for="numQuestions">Number of MCQs</label>
+                                <input type="number" id="numQuestions" name="num_questions" value="5" min="1" max="20">
+                            </div>
+                            <div class="option-group">
+                                <label for="difficulty">Difficulty Level</label>
+                                <select id="difficulty" name="difficulty">
+                                    <option value="Easy">Easy</option>
+                                    <option value="Medium" selected>Medium</option>
+                                    <option value="Hard">Hard</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="includeExplanations" name="include_explanations" checked>
+                            <label for="includeExplanations">Include detailed explanations</label>
+                        </div>
+                        
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="includeTF" name="include_tf">
+                            <label for="includeTF">Include True/False questions</label>
+                        </div>
+                        
+                        <div class="form-options" id="tfOptions" style="display: none;">
+                            <div class="option-group">
+                                <label for="tfCount">Number of T/F</label>
+                                <input type="number" id="tfCount" name="tf_count" value="3" min="1" max="10">
+                            </div>
+                            <div class="option-group">
+                                <!-- Empty for spacing -->
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="generate-btn" id="generateBtn">
+                            <span class="btn-icon">🚀</span>
+                            Generate Questions
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="section-container">
+            <div class="section-header">
+                <h2>Why Choose DocQuest?</h2>
+                <p>Powerful AI technology meets intuitive design for the ultimate learning experience</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>AI-Powered Intelligence</h3>
+                    <p>Advanced GPT-4 technology analyzes your content and generates contextually relevant questions with precision.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Lightning Fast</h3>
+                    <p>Get comprehensive quizzes in seconds. Our optimized AI processes documents quickly without compromising quality.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Customizable Difficulty</h3>
+                    <p>Tailor questions to your audience with adjustable difficulty levels from beginner to expert.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📚</div>
+                    <h3>Detailed Explanations</h3>
+                    <p>Every question comes with comprehensive explanations to enhance learning and understanding.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📱</div>
+                    <h3>Mobile Responsive</h3>
+                                        <p>Access DocQuest from any device. Perfect responsive design ensures great experience everywhere.</p>
+                </div>
+            </div>
+        </div>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Secure & Private</h3>
+                    <p>Your documents are processed securely and never stored. Complete privacy and data protection guaranteed.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section id="how-it-works" class="how-it-works">
+        <div class="section-container">
+            <div class="section-header">
+                <h2>How It Works</h2>
+                <p>Three simple steps to transform your content into engaging assessments</p>
+            </div>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Upload Your PDF</h3>
+                    <p>Simply drag and drop or click to upload any PDF document. We support educational materials, research papers, manuals, and more.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>AI Analyzes Content</h3>
+                    <p>Our advanced AI reads and understands your document, identifying key concepts, important facts, and learning objectives.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Get Smart Questions</h3>
+                    <p>Receive professionally crafted questions with multiple choice options and detailed explanations ready for immediate use.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="about">
+        <div class="section-container">
+            <div class="about-content">
+                <div class="about-text">
+                    <h2>Revolutionizing Education Assessment</h2>
+                    <p class="lead">DocQuest combines cutting-edge artificial intelligence with educational expertise to create the most advanced question generation platform available.</p>
+                    <p>Our mission is to empower educators, trainers, and learners with tools that make assessment creation effortless and effective. By leveraging the latest advances in natural language processing, we ensure every question is relevant, challenging, and pedagogically sound.</p>
+                    <div class="about-features">
+                        <div class="about-feature">
+                            <div class="check-icon">✓</div>
+                            <span>Advanced Natural Language Processing</span>
+                        </div>
+                        <div class="about-feature">
+                            <div class="check-icon">✓</div>
+                            <span>Contextual Understanding Technology</span>
+                        </div>
+                        <div class="about-feature">
+                            <div class="check-icon">✓</div>
+                            <span>Educational Best Practices Integration</span>
+                        </div>
+                        <div class="about-feature">
+                            <div class="check-icon">✓</div>
+                            <span>Continuous Learning and Improvement</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="about-visual">
+                    <div class="visual-card">
+                        <div class="visual-header">Powered by Advanced AI</div>
+                        <div class="visual-content">
+                            <div class="tech-badge">GPT-4</div>
+                            <div class="tech-badge">Machine Learning</div>
+                            <div class="tech-badge">NLP</div>
+                            <div class="tech-badge">Python</div>
+                            <div class="tech-badge">Flask</div>
+                        </div>
+                        <p class="visual-text">Built with the latest AI technologies to deliver unmatched accuracy and intelligence in question generation.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="brand-icon">🧠</span>
+                    DocQuest
+                </div>
+                <p class="footer-description">Transforming education through intelligent assessment technology</p>
+                <div class="footer-links">
+                    <a href="#features">Features</a>
+                    <a href="#how-it-works">How It Works</a>
+                    <a href="#about">About</a>
+                    <a href="#hero">Get Started</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 DocQuest. All rights reserved. | Powered by AI Technology</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <h3>Analyzing Your Document</h3>
+            <p>Our AI is reading and generating intelligent questions...</p>
+        </div>
+    </div>
+
+    <script>
+        // Stats update functionality
+        function updateStats() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    animateNumber('questionsCount', data.questions);
+                    animateNumber('usersCount', data.users);
+                    document.getElementById('accuracyRate').textContent = data.accuracy;
+                })
+                .catch(error => console.log('Stats update error:', error));
+        }
+
+        function animateNumber(elementId, newValue) {
+            const element = document.getElementById(elementId);
+            const currentValue = element.textContent;
+            
+            if (currentValue !== newValue) {
+                element.style.transform = 'scale(1.1)';
+                element.style.color = '#fbbf24';
+                
+                setTimeout(() => {
+                    element.textContent = newValue;
+                    element.style.transform = 'scale(1)';
+                    element.style.color = '#fbbf24';
+                }, 200);
+            }
+        }
+
+        // Update stats every 30 seconds
+        setInterval(updateStats, 30000);
+
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Navbar scroll effect
+        window.addEventListener('scroll', function() {
+            const navbar = document.getElementById('navbar');
+            if (window.scrollY > 50) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+        });
+
+        // Intersection Observer for animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver(function(entries) {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('animate-in');
+                }
+            });
+        }, observerOptions);
+
+        // Observe elements for animation
+        document.querySelectorAll('.feature-card, .step, .about-text, .about-visual').forEach(el => {
+            observer.observe(el);
+        });
+
+        // File upload handling
+        const fileInput = document.getElementById('pdfInput');
+        const fileUpload = document.getElementById('fileUpload');
+        const fileStatus = document.getElementById('fileStatus');
+        const uploadForm = document.getElementById('uploadForm');
+        const generateBtn = document.getElementById('generateBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const includeTF = document.getElementById('includeTF');
+        const tfOptions = document.getElementById('tfOptions');
+
+        // Toggle True/False options
+        includeTF.addEventListener('change', function() {
+            if (this.checked) {
+                tfOptions.style.display = 'block';
+            } else {
+                tfOptions.style.display = 'none';
+            }
+        });
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                fileStatus.textContent = `Selected: ${file.name}`;
+                fileStatus.style.color = '#48bb78';
+                fileUpload.style.borderColor = '#48bb78';
+                fileUpload.style.background = 'linear-gradient(135deg, #f0fff4 0%, #e6fffa 100%)';
+            }
+        });
+
+        // Drag and drop functionality
+        fileUpload.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            fileUpload.style.borderColor = '#667eea';
+            fileUpload.style.background = 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)';
+        });
+
+        fileUpload.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            fileUpload.style.borderColor = '#d1d5db';
+            fileUpload.style.background = 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)';
+        });
+
+        fileUpload.addEventListener('drop', function(e) {
+            e.preventDefault();
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type === 'application/pdf') {
+                fileInput.files = files;
+                const event = new Event('change');
+                fileInput.dispatchEvent(event);
+            }
+        });
+
+        // Form submission with loading
+        uploadForm.addEventListener('submit', function(e) {
+            if (!fileInput.files[0]) {
+                e.preventDefault();
+                alert('Please select a PDF file first!');
+                return;
+            }
+            
+            loadingOverlay.classList.remove('hidden');
+            generateBtn.disabled = true;
+            
+            // Update stats immediately for better UX
+            setTimeout(() => {
+                updateStats();
+            }, 2000);
+        });
+
+        // Add some dynamic interactions
+        document.querySelectorAll('.feature-card').forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                this.style.transform = 'translateY(-12px) scale(1.02)';
+            });
+            
+            card.addEventListener('mouseleave', function() {
+                this.style.transform = 'translateY(-8px) scale(1)';
+            });
+        });
+    </script>
+</body>
+</html>

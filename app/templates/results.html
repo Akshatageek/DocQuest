@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Results - DocQuest</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        /* Additional styles for results page */
+        .results-container {
+            max-width: 900px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .results-header {
+            background: white;
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .results-header h1 {
+            color: #2d3748;
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .results-header p {
+            color: #718096;
+            font-size: 1.1rem;
+        }
+
+        .section-title {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .question-count {
+            background: rgba(255,255,255,0.2);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .question-card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+
+        .question-text {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+            line-height: 1.6;
+        }
+
+        .options-list {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 1rem 0;
+        }
+
+        .option-item {
+            margin-bottom: 0.75rem;
+        }
+
+        .option-label {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+        }
+
+        .option-label:hover {
+            background: #edf2f7;
+            border-color: #cbd5e1;
+        }
+
+        .option-label input {
+            margin-right: 1rem;
+            transform: scale(1.2);
+        }
+
+        .option-letter {
+            font-weight: 700;
+            margin-right: 0.5rem;
+            color: #4a5568;
+        }
+
+        /* Answer highlighting */
+        .option-item.correct .option-label {
+            background: #f0fff4;
+            border-color: #10b981;
+            color: #065f46;
+        }
+
+        .option-item.wrong .option-label {
+            background: #fef2f2;
+            border-color: #ef4444;
+            color: #991b1b;
+        }
+
+        .option-item.correct::before {
+            content: "✓";
+            color: #10b981;
+            font-weight: bold;
+            margin-right: 0.5rem;
+            float: right;
+        }
+
+        .option-item.wrong::before {
+            content: "✗";
+            color: #ef4444;
+            font-weight: bold;
+            margin-right: 0.5rem;
+            float: right;
+        }
+
+        /* Answer explanation */
+        .answer-section {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .answer-section.show {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .correct-answer {
+            font-weight: 600;
+            color: #10b981;
+            margin-bottom: 0.5rem;
+        }
+
+        .explanation {
+            color: #4a5568;
+            line-height: 1.6;
+            font-size: 0.95rem;
+        }
+
+        /* Action buttons */
+        .action-buttons {
+            background: white;
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .action-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.95rem;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .action-btn.secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+
+        .action-btn.secondary:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .score-display {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .results-container {
+                padding: 1rem;
+            }
+            
+            .action-buttons {
+                flex-direction: column;
+            }
+            
+            .action-btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="results-container">
+            <!-- Header -->
+            <div class="results-header">
+                <h1>🎯 Quiz Results</h1>
+                <p>Review your answers and check explanations</p>
+            </div>
+
+            {% if questions and questions.error %}
+                <div class="question-card">
+                    <p style="color: #ef4444; text-align: center;">An error occurred: {{ questions.error }}</p>
+                </div>
+            {% else %}
+                {% set mc = (questions.multiple_choice if questions and questions.multiple_choice is defined else []) %}
+                {% set tf = (questions.true_false if questions and questions.true_false is defined else []) %}
+
+                <!-- Multiple Choice Section -->
+                {% if mc|length > 0 %}
+                    <div class="section-title">
+                        <span>📝 Multiple Choice Questions</span>
+                        <span class="question-count">{{ mc|length }} Questions</span>
+                    </div>
+                    
+                    {% for q in mc %}
+                        {% set letters = ['A','B','C','D'] %}
+                        {% set correct = (q.answer|upper) %}
+                        {% set qid = 'mc-' + loop.index0|string %}
+                        <div class="question-card" data-correct="{{ correct }}" data-type="mc">
+                            <div class="question-text">{{ loop.index }}. {{ q.question }}</div>
+                            
+                            <ul class="options-list">
+                                {% for opt in q.options %}
+                                    {% set letter = letters[loop.index0] %}
+                                    <li class="option-item" data-value="{{ letter }}">
+                                        <label class="option-label">
+                                            <input type="radio" name="{{ qid }}" value="{{ letter }}">
+                                            <span class="option-letter">{{ letter }}.</span>
+                                            <span>{{ opt }}</span>
+                                        </label>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            
+                            <div class="answer-section">
+                                <div class="correct-answer">✓ Correct Answer: {{ correct }}</div>
+                                <div class="explanation">{{ q.explanation or "This is the correct answer based on the content provided." }}</div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- True/False Section -->
+                {% if tf|length > 0 %}
+                    <div class="section-title">
+                        <span>✅ True/False Questions</span>
+                        <span class="question-count">{{ tf|length }} Questions</span>
+                    </div>
+                    
+                    {% for q in tf %}
+                        {% set correct_tf = 'True' if q.answer else 'False' %}
+                        {% set qid = 'tf-' + loop.index0|string %}
+                        <div class="question-card" data-correct="{{ correct_tf }}" data-type="tf">
+                            <div class="question-text">{{ loop.index }}. {{ q.question }}</div>
+                            
+                            <ul class="options-list">
+                                <li class="option-item" data-value="True">
+                                    <label class="option-label">
+                                        <input type="radio" name="{{ qid }}" value="True">
+                                        <span class="option-letter">T.</span>
+                                        <span>True</span>
+                                    </label>
+                                </li>
+                                <li class="option-item" data-value="False">
+                                    <label class="option-label">
+                                        <input type="radio" name="{{ qid }}" value="False">
+                                        <span class="option-letter">F.</span>
+                                        <span>False</span>
+                                    </label>
+                                </li>
+                            </ul>
+                            
+                            <div class="answer-section">
+                                <div class="correct-answer">✓ Correct Answer: {{ correct_tf }}</div>
+                                <div class="explanation">{{ q.explanation or "This statement is " + correct_tf.lower() + " based on the provided content." }}</div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button class="action-btn" onclick="showAnswers()">🔍 Show Answers</button>
+                    <button class="action-btn" onclick="checkAnswers()">📊 Check My Answers</button>
+                    <button class="action-btn secondary" onclick="downloadPDF()">📄 Download PDF</button>
+                    <button class="action-btn secondary" onclick="window.location.href='/'">🔙 New Quiz</button>
+                    <div id="scoreDisplay" class="score-display" style="display: none;"></div>
+                </div>
+
+                <div id="jsonData" data-json='{{ questions | tojson }}' style="display:none"></div>
+            {% endif %}
+        </div>
+        
+        <footer class="footer">
+            <p>© 2025 DocQuest — Smart Question Generation</p>
+        </footer>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="overlay hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        function showAnswers() {
+            const answerSections = document.querySelectorAll('.answer-section');
+            const isVisible = document.querySelector('.answer-section.show');
+            
+            answerSections.forEach(section => {
+                if (isVisible) {
+                    section.classList.remove('show');
+                } else {
+                    section.classList.add('show');
+                }
+            });
+            
+            // Update button text
+            const btn = event.target;
+            btn.textContent = isVisible ? '🔍 Show Answers' : '🙈 Hide Answers';
+        }
+
+        function checkAnswers() {
+            let correct = 0;
+            let total = 0;
+            
+            // Reset all previous highlighting
+            document.querySelectorAll('.option-item').forEach(item => {
+                item.classList.remove('correct', 'wrong');
+            });
+
+            // Check all questions
+            document.querySelectorAll('.question-card').forEach(card => {
+                const correctAnswer = card.dataset.correct;
+                const selectedInput = card.querySelector('input[type="radio"]:checked');
+                
+                if (selectedInput) {
+                    total++;
+                    const selectedValue = selectedInput.value;
+                    const selectedItem = card.querySelector(`[data-value="${selectedValue}"]`);
+                    const correctItem = card.querySelector(`[data-value="${correctAnswer}"]`);
+                    
+                    // Always highlight correct answer in green
+                    if (correctItem) {
+                        correctItem.classList.add('correct');
+                    }
+                    
+                    // If user selected wrong answer, highlight it in red
+                    if (selectedValue === correctAnswer) {
+                        correct++;
+                    } else if (selectedItem && selectedItem !== correctItem) {
+                        selectedItem.classList.add('wrong');
+                    }
+                }
+            });
+
+            // Show score
+            const scoreDisplay = document.getElementById('scoreDisplay');
+            if (total > 0) {
+                const percentage = Math.round((correct / total) * 100);
+                scoreDisplay.textContent = `Score: ${correct}/${total} (${percentage}%)`;
+                scoreDisplay.style.display = 'block';
+                
+                // Show all answers after checking
+                document.querySelectorAll('.answer-section').forEach(section => {
+                    section.classList.add('show');
+                });
+            }
+        }
+
+        async function downloadPDF() {
+            const jsonElement = document.getElementById('jsonData');
+            const jsonData = jsonElement ? jsonElement.dataset.json : '{}';
+            
+            let data;
+            try {
+                data = JSON.parse(jsonData);
+            } catch {
+                data = {};
+            }
+
+            const loading = document.getElementById('loading');
+            loading.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/download/pdf', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) throw new Error('Failed to generate PDF');
+
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'docquest-quiz.pdf';
+                link.click();
+                
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (error) {
+                alert('Could not download PDF. Please try again.');
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        // Add some nice animations on load
+        document.addEventListener('DOMContentLoaded', () => {
+            const cards = document.querySelectorAll('.question-card');
+            cards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+</html>

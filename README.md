@@ -1,89 +1,121 @@
 # DocQuest
 
-**DocQuest** is an AI-powered web application that automatically generates quiz questions from any PDF document. Built for educators, students, and professionals, DocQuest transforms study material, notes, or training documents into smart, interactive quizzes in seconds.
+AI-powered quiz generator that turns PDF content into multiple-choice and true/false questions using OpenAI.
+
+## Why This Project Is Useful
+DocQuest helps educators and students quickly create practice quizzes from notes, handouts, and lecture PDFs.
+
+## Features
+- PDF upload and text extraction
+- AI-generated MCQ + True/False questions
+- Difficulty selection: Easy, Medium, Hard
+- Optional answer explanations
+- Results view with answer checking
+- Quiz PDF export
+- Usage statistics endpoint
+- Fallback generator when API is unavailable
+
+## Tech Stack
+- Python 3.10+
+- Flask
+- OpenAI API (model configured in app)
+- PyPDF2
+- ReportLab
+- HTML, CSS, JavaScript
+
+## Project Structure
+```text
+DocQuest/
+   app/
+      main.py
+      templates/
+         index.html
+         results.html
+      static/
+         styles.css
+      uploads/
+      stats.json
+   requirements.txt
+   Procfile
+   render.yaml
+   .env.example
+   README.md
+```
+
+## Local Setup
+1. Clone repo
+```bash
+git clone https://github.com/Akshatageek/DocQuest.git
+cd DocQuest
+```
+
+2. Create virtual env
+```bash
+python -m venv .venv
+```
+
+3. Activate env
+Windows PowerShell:
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+macOS/Linux:
+```bash
+source .venv/bin/activate
+```
+
+4. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+5. Configure environment variable
+```bash
+OPENAI_API_KEY=your_api_key_here
+```
+
+6. Run app
+```bash
+cd app
+python main.py
+```
+
+Open: http://127.0.0.1:5000
+
+## Environment Variables
+- OPENAI_API_KEY: required for OpenAI-based generation
+
+## API Endpoints
+- GET /health
+- GET /api/stats
+- POST /generate
+- POST /sample
+- POST /download/pdf
+
+## Deploy on Render
+1. Push this repository to GitHub.
+2. Create a new Web Service on Render.
+3. Connect your GitHub repo.
+4. Render will read render.yaml automatically, or set manually:
+- Build command: pip install -r requirements.txt
+- Start command: gunicorn app.main:app
+5. Add environment variable in Render:
+- OPENAI_API_KEY
+6. Deploy.
+
+## Security Notes
+- Do not commit API keys.
+- Keep OPENAI_API_KEY only in environment variables.
+- uploads and local runtime files should not be committed.
+
+## License
+MIT
+
+[![GitHub stars](https://img.shields.io/github/stars/Akshatageek/DocQuest.svg?style=social&label=Star)](https://github.com/Akshatageek/DocQuest)
 
 ---
 
-## 🚀 Features
-- **PDF Upload:** Upload any PDF document to generate questions.
-- **AI-Powered Question Generation:** Uses OpenAI GPT to create multiple-choice and true/false questions with explanations.
-- **Interactive Quiz Interface:** Clean, responsive UI for answering and reviewing questions.
-- **Live Statistics:** Real-time stats for questions generated, PDFs processed, and accuracy rate.
-- **Modern Design:** Professional, mobile-friendly interface with smooth animations.
+**Made with ❤️ for educators and learners worldwide**
 
----
-
-## 🛠️ Tech Stack
-- **Backend:** Python, Flask
-- **AI/LLM:** OpenAI GPT (via API)
-- **Frontend:** HTML, CSS, JavaScript
-- **PDF Processing:** Python PDF libraries
-- **Templating:** Jinja2
-- **Data Storage:** JSON (for stats)
-
----
-
-## 🤖 How It Works
-1. **Upload PDF:** Drag and drop or select a PDF file.
-2. **Select Options:** Choose question type (MCQ/True-False), difficulty, and number of questions.
-3. **Generate:** The app extracts text, sends it to OpenAI GPT, and receives questions with explanations.
-4. **Quiz:** View, answer, and check explanations for each question.
-5. **Stats:** See live updates on usage and performance.
-
----
-
-## 🏷️ Use Cases
-- Teachers and trainers creating assessments
-- Students self-testing from notes or textbooks
-- Professionals building training materials
-
----
-
-## 📦 Setup & Run Locally
-1. **Clone the repo:**
-   ```bash
-   git clone https://github.com/Akshatageek/DocQuest.git
-   cd DocQuest
-   ```
-2. **Create a virtual environment & activate:**
-   ```bash
-   python -m venv .venv
-   # On Windows:
-   .venv\Scripts\activate
-   # On Mac/Linux:
-   source .venv/bin/activate
-   ```
-3. **Install dependencies:**
-   ```bash
-   pip install -r app/requirements.txt
-   ```
-4. **Set your OpenAI API key:**
-   - Add your OpenAI API key to your environment variables or directly in the code (not recommended for production).
-5. **Run the app:**
-   ```bash
-   cd app
-   python main.py
-   ```
-6. **Open in browser:**
-   - Go to `http://127.0.0.1:5000`
-
----
-
-## 📄 License
-MIT License
-
----
-
-## 🙏 Credits
-- Built as part of the Skillcred GenAI session
-- Powered by OpenAI GPT
-
----
-
-## 🌟 Demo Screenshot
-![DocQuest Screenshot](demo_screenshot.png)
-
----
-
-## 💬 Feedback
-Feel free to open issues or submit pull requests to improve DocQuest!
+*Transform your documents into intelligent quizzes with DocQuest - where AI meets education!*

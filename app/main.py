@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 import os
 import re
@@ -63,9 +63,9 @@ def update_stats(questions_generated, pdf_processed=True):
 # Initialize stats on startup
 init_stats()
 
-# Read OpenAI API key from environment (optional; app will fall back if missing)
-EMBEDDED_OPENAI_API_KEY = "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"
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY') or EMBEDDED_OPENAI_API_KEY
+# Read OpenAI API key from environment only.
+# Keep secrets out of source control for GitHub/deployment safety.
+OPENAI_API_KEY = (os.getenv('OPENAI_API_KEY') or "").strip()
 
 @app.route('/', methods=['GET'])
 def index():
@@ -96,7 +96,7 @@ def generate():
     tf_count = max(0, min(10, tf_count))
 
     file = request.files['pdf']
-    if file and file.filename.endswith('.pdf'):
+    if file and file.filename.lower().endswith('.pdf'):
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         try:
@@ -275,69 +275,122 @@ def generate_questions(text, mcq_count: int = 10, tf_count: int = 0, difficulty:
         try:
             client = OpenAI(api_key=OPENAI_API_KEY)
             
-            explanation_text = "and a detailed explanation" if include_explanations else "without explanations"
-            difficulty_text = f"Make the questions {difficulty.lower()} level difficulty. "
+            # Create better prompts for different difficulty levels
+            difficulty_instructions = {
+                "Easy": "Make questions straightforward with direct answers from the text. Focus on basic concepts and definitions.",
+                "Medium": "Create questions that require understanding and application of concepts. Mix direct facts with some inference.",
+                "Hard": "Generate challenging questions requiring analysis, synthesis, and deeper understanding. Include questions that test critical thinking."
+            }
             
-            prompt = (
-                f"You are a helpful assistant for teachers. Given the provided lesson text, "
-                f"generate exactly {mcq_count} multiple-choice questions (each with 4 options labeled A-D, the correct answer, {explanation_text}), "
-                f"and exactly {tf_count} true/false questions with the correct answer {explanation_text}. "
-                f"{difficulty_text}"
-                "Always return only strict JSON, no extra text, matching this schema: {\n"
-                "  \"multiple_choice\": [ { \"question\": string, \"options\": [string, string, string, string], \"answer\": one of ['A','B','C','D'], \"explanation\": string } ] ,\n"
-                "  \"true_false\": [ { \"question\": string, \"answer\": boolean, \"explanation\": string } ]\n"
-                "}. "
-            )
+            difficulty_text = difficulty_instructions.get(difficulty, difficulty_instructions["Medium"])
+            explanation_text = "with detailed explanations (2-3 sentences each)" if include_explanations else "without explanations"
             
-            if include_explanations:
-                prompt += "Each explanation should be 1-2 sentences explaining why the answer is correct. "
-            else:
-                prompt += "Set explanation to empty string for all questions. "
-                
-            prompt += "If the requested true/false count is 0, return \"true_false\": []."
-            user = f"Text:\n{text[:8000]}"  # cap to avoid very long prompts
-            resp = client.chat.completions.create(
+            # Enhanced prompt for better question quality
+            system_prompt = f"""You are an expert educator creating high-quality quiz questions from educational content.
+
+INSTRUCTIONS:
+1. Generate exactly {mcq_count} multiple-choice questions and {tf_count} true/false questions
+2. {difficulty_text}
+3. Each MCQ should have 4 distinct, plausible options (A, B, C, D)
+4. Make sure questions are clear, specific, and test understanding
+5. Include {explanation_text}
+6. Base all questions strictly on the provided text content
+7. Avoid ambiguous or trick questions
+
+DIFFICULTY LEVEL: {difficulty}
+
+RESPONSE FORMAT - Return ONLY valid JSON with this exact structure:
+{{
+  "multiple_choice": [
+    {{
+      "question": "Clear, specific question text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "answer": "A",
+      "explanation": "Detailed explanation of why this is correct."
+    }}
+  ],
+  "true_false": [
+    {{
+      "question": "Clear statement to evaluate as true or false.",
+      "answer": true,
+      "explanation": "Explanation of why this statement is true/false."
+    }}
+  ]
+}}"""
+
+            user_content = f"TEXT TO CREATE QUESTIONS FROM:\n\n{text[:12000]}"  # Increased limit for better context
+            
+            response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": user},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
                 ],
-                temperature=0.3,
+                temperature=0.7,  # Slightly higher for more creative questions
+                max_tokens=4000,  # Increased for detailed explanations
             )
-            content = resp.choices[0].message.content if resp.choices else "{}"
+            
+            content = response.choices[0].message.content if response.choices else "{}"
+            if isinstance(content, str):
+                cleaned = content.strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.strip("`")
+                    if cleaned.startswith("json"):
+                        cleaned = cleaned[4:].strip()
+                content = cleaned
+            
             try:
                 data = json.loads(content)
-            except Exception:
-                data = None
-            if isinstance(data, dict):
-                # Normalize and enforce counts if possible
-                mc = data.get("multiple_choice") or []
-                tf = data.get("true_false") or []
-                # Trim or pad MCQs
-                if isinstance(mc, list):
-                    mc = mc[:mcq_count]
-                else:
-                    mc = []
-                # Trim or pad TF
-                if isinstance(tf, list):
-                    tf = tf[:tf_count]
-                else:
-                    tf = []
-                normalized = {"multiple_choice": mc, "true_false": tf, "source": "openai"}
-                return normalized
-            # If model returned text not strictly JSON, fall back
-            fb = simple_fallback_questions(text, mcq_count=mcq_count, tf_count=tf_count, difficulty=difficulty, include_explanations=include_explanations)
-            fb["source"] = "fallback"
-            return fb
-        except Exception:
-            # Any API/SDK error -> fallback
-            fb = simple_fallback_questions(text, mcq_count=mcq_count, tf_count=tf_count, difficulty=difficulty, include_explanations=include_explanations)
-            fb["source"] = "fallback"
-            return fb
+                if isinstance(data, dict):
+                    # Validate and clean the response
+                    mc = data.get("multiple_choice", [])
+                    tf = data.get("true_false", [])
+                    
+                    # Ensure correct counts
+                    mc = mc[:mcq_count] if len(mc) > mcq_count else mc
+                    tf = tf[:tf_count] if len(tf) > tf_count else tf
+                    
+                    # Validate MCQ structure
+                    validated_mc = []
+                    for q in mc:
+                        if (isinstance(q, dict) and 
+                            'question' in q and 
+                            'options' in q and 
+                            'answer' in q and
+                            len(q.get('options', [])) == 4):
+                            validated_mc.append(q)
+                    
+                    # Validate TF structure
+                    validated_tf = []
+                    for q in tf:
+                        if (isinstance(q, dict) and 
+                            'question' in q and 
+                            'answer' in q and
+                            isinstance(q['answer'], bool)):
+                            validated_tf.append(q)
+                    
+                    result = {
+                        "multiple_choice": validated_mc,
+                        "true_false": validated_tf,
+                        "source": "openai"
+                    }
+                    
+                    # If we got valid questions, return them
+                    if validated_mc or validated_tf:
+                        return result
+                    
+            except json.JSONDecodeError:
+                pass
+            
+            # If OpenAI failed to generate proper JSON, fall back
+            return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations)
+            
+        except Exception as e:
+            print(f"OpenAI API Error: {e}")
+            return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations)
+    
     # No API key or SDK -> fallback
-    fb = simple_fallback_questions(text, mcq_count=mcq_count, tf_count=tf_count, difficulty=difficulty, include_explanations=include_explanations)
-    fb["source"] = "fallback"
-    return fb
+    return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations)
 
 
 def simple_fallback_questions(text: str, mcq_count: int = 10, tf_count: int = 0, difficulty: str = "Medium", include_explanations: bool = True):
@@ -345,63 +398,98 @@ def simple_fallback_questions(text: str, mcq_count: int = 10, tf_count: int = 0,
 
     Generates variable numbers of MCQ and True/False based on requested counts.
     """
+    return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations)
+
+def generate_fallback_questions(text: str, mcq_count: int, tf_count: int, difficulty: str, include_explanations: bool):
+    """Improved fallback question generator."""
     # Basic sentence splitting
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
-    head = sentences[:8] if sentences else ["This chapter discusses key concepts."]
+    head = sentences[:max(10, mcq_count + tf_count)] if sentences else ["This chapter discusses key concepts."]
 
-    # Build some naive MCQs by masking nouns/keywords
+    # Extract better keywords from text
     keywords = []
+    common_words = {'the', 'is', 'are', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'a', 'an'}
+    
     for s in head:
-        # Pick words with length >= 5 as pseudo-keywords
-        for w in re.findall(r"[A-Za-z][A-Za-z\-]{4,}", s):
-            keywords.append(w)
-    # If not enough unique keywords, recycle defaults
-    seed = keywords if keywords else []
-    defaults = ["concept", "process", "system", "theory", "model", "method", "analysis", "context"]
-    seed = (seed + defaults)[: max(4, mcq_count)]
-
-    # Helper to build options quartet
-    def make_options(idx: int):
-        base = [seed[(idx + i) % len(seed)] for i in range(4)]
-        # Ensure unique within options
-        seen = set(); opts = []
-        for x in base:
-            if x not in seen:
-                seen.add(x); opts.append(x)
-        while len(opts) < 4:
-            nxt = defaults[(len(opts) + idx) % len(defaults)]
-            if nxt not in seen:
-                seen.add(nxt); opts.append(nxt)
-        return opts
-
+        words = re.findall(r"[A-Za-z][A-Za-z\-]{2,}", s.lower())
+        for w in words:
+            if w not in common_words and len(w) >= 4:
+                keywords.append(w.title())
+    
+    # Remove duplicates and ensure we have enough
+    keywords = list(dict.fromkeys(keywords))  # preserves order, removes duplicates
+    if len(keywords) < 8:
+        keywords.extend(["Process", "System", "Method", "Theory", "Analysis", "Concept", "Model", "Framework"])
+    
+    # Generate MCQs
     mcq = []
     for i in range(mcq_count):
-        qtext = head[i % len(head)] if head else "The text discusses key ideas."
-        opts = make_options(i)
-        correct_letter = ["A", "B", "C", "D"][i % 4]
-        # Shuffle-like rotation to vary position
-        if i % 2 == 1:
-            opts = [opts[1], opts[0], opts[2], opts[3]]; correct_letter = "B" if correct_letter == "A" else correct_letter
-        if i % 3 == 2:
-            opts = [opts[0], opts[2], opts[1], opts[3]]; correct_letter = {"A":"A","B":"C","C":"B","D":"D"}[correct_letter]
+        sentence = head[i % len(head)]
+        # Create more natural questions
+        question_templates = [
+            f"Based on the text, what is primarily discussed in: '{sentence[:80]}...'?",
+            f"Which concept is most relevant to: '{sentence[:80]}...'?",
+            f"What key term best relates to: '{sentence[:80]}...'?",
+            f"According to the content, what is emphasized in: '{sentence[:80]}...'?"
+        ]
+        
+        question = question_templates[i % len(question_templates)]
+        
+        # Create 4 unique options
+        opts = []
+        correct_idx = i % 4
+        
+        for j in range(4):
+            word_idx = (i * 4 + j) % len(keywords)
+            opts.append(keywords[word_idx])
+        
+        # Ensure all options are unique
+        opts = list(dict.fromkeys(opts))
+        while len(opts) < 4:
+            opts.append(f"Option {len(opts) + 1}")
+        
+        correct_letter = chr(ord('A') + correct_idx)
+        
+        explanation = ""
+        if include_explanations:
+            explanation = f"The correct answer is '{opts[correct_idx]}' as it best relates to the context and concepts discussed in the provided text."
+        
         mcq.append({
-            "question": f"Which term best fits the context: '{qtext}'?",
-            "options": opts,
+            "question": question,
+            "options": opts[:4],
             "answer": correct_letter,
-            "explanation": f"The correct answer is {opts[ord(correct_letter)-ord('A')]} as it appears in the provided text context." if include_explanations else "",
+            "explanation": explanation
         })
 
+    # Generate True/False questions
     tf = []
     for i in range(tf_count):
-        qtext = head[i % len(head)] if head else "The text discusses key ideas."
-        answer_val = (i % 2 == 0)
+        sentence = head[i % len(head)]
+        answer_val = (i % 2 == 0)  # Alternate true/false
+        
+        # Create more natural T/F statements
+        if answer_val:
+            question = f"The text discusses: {sentence[:100]}..."
+        else:
+            # Create false statements by negating or changing concepts
+            negation_words = ["does not discuss", "contradicts", "ignores the concept of"]
+            neg_word = negation_words[i % len(negation_words)]
+            question = f"The text {neg_word}: {sentence[:80]}..."
+        
+        explanation = ""
+        if include_explanations:
+            if answer_val:
+                explanation = "This statement is TRUE as it directly reflects content from the provided text."
+            else:
+                explanation = "This statement is FALSE as it misrepresents or contradicts the information in the text."
+        
         tf.append({
-            "question": f"The text mentions: '{qtext}'", 
+            "question": question,
             "answer": answer_val,
-            "explanation": f"This statement is {'true' if answer_val else 'false'} based on the content provided in the text." if include_explanations else ""
+            "explanation": explanation
         })
 
-    return {"multiple_choice": mcq, "true_false": tf}
+    return {"multiple_choice": mcq, "true_false": tf, "source": "fallback"}
 
 if __name__ == '__main__':
     app.run(debug=True, host='127.0.0.1', port=5000)

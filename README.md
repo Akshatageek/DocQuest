@@ -18,7 +18,7 @@ DocQuest helps educators and students quickly create practice quizzes from notes
 ## Tech Stack
 - Python 3.10+
 - Flask
-- OpenAI API (model configured in app)
+- Gemini API or OpenAI API (model configured via env)
 - PyPDF2
 - ReportLab
 - HTML, CSS, JavaScript
@@ -71,8 +71,14 @@ pip install -r requirements.txt
 ```
 
 5. Configure environment variable
-```bash
+- Preferred: create .env at repository root
+```env
 OPENAI_API_KEY=your_api_key_here
+```
+
+- Or for current Windows PowerShell session:
+```powershell
+$env:OPENAI_API_KEY="your_api_key_here"
 ```
 
 6. Run app
@@ -84,7 +90,11 @@ python main.py
 Open: http://127.0.0.1:5000
 
 ## Environment Variables
+- AI_PROVIDER: `gemini`, `openai`, or `auto`
+- GEMINI_API_KEY: required when using Gemini
+- GEMINI_MODEL: optional (default `gemini-1.5-flash-latest`)
 - OPENAI_API_KEY: required for OpenAI-based generation
+- OPENAI_MODEL: optional (default `gpt-4o-mini`)
 
 ## API Endpoints
 - GET /health

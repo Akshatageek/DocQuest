@@ -5,11 +5,18 @@ import re
 import json
 import io
 from datetime import datetime
+from dotenv import load_dotenv
 try:
     # OpenAI SDK v1.x
     from openai import OpenAI  # type: ignore
 except Exception:
     OpenAI = None  # type: ignore
+try:
+    import google.generativeai as genai  # type: ignore
+except Exception:
+    genai = None  # type: ignore
+
+load_dotenv()
 
 
 app = Flask(__name__)
@@ -65,7 +72,18 @@ init_stats()
 
 # Read OpenAI API key from environment only.
 # Keep secrets out of source control for GitHub/deployment safety.
-OPENAI_API_KEY = (os.getenv('OPENAI_API_KEY') or "").strip()
+def get_openai_api_key() -> str:
+    return (os.getenv('OPENAI_API_KEY') or "").strip()
+
+
+def get_gemini_api_key() -> str:
+    # Support both names for convenience.
+    return (os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY') or "").strip()
+
+
+def get_ai_provider() -> str:
+    # auto | gemini | openai
+    return (os.getenv('AI_PROVIDER') or 'auto').strip().lower()
 
 @app.route('/', methods=['GET'])
 def index():
@@ -257,36 +275,162 @@ def extract_text_from_pdf(filepath):
 def too_large(_e):
     return render_template('results.html', questions={"error": "File too large (limit 16 MB)."}, questions_json=json.dumps({"error": "File too large (limit 16 MB)."}, indent=2)), 413
 
-def generate_questions(text, mcq_count: int = 10, tf_count: int = 0, difficulty: str = "Medium", include_explanations: bool = True):
-    """Generate questions using OpenAI if configured; otherwise use a simple fallback.
+def _normalize_mcq_item(item, include_explanations: bool):
+    if not isinstance(item, dict):
+        return None
 
-    Args:
-        text: Source text to generate questions from.
-        mcq_count: Number of multiple-choice questions (>=1).
-        tf_count: Number of true/false questions (>=0). If 0, return an empty list for true_false.
-        difficulty: Difficulty level (Easy, Medium, Hard).
-        include_explanations: Whether to include explanations for answers.
+    question = str(item.get("question", "")).strip()
+    if not question:
+        return None
 
-    Returns:
-        dict: {"multiple_choice": [...], "true_false": [...], "source": "openai|fallback"}
-    """
-    # If API key and SDK are available, try OpenAI first
-    if OPENAI_API_KEY and OpenAI is not None:
+    raw_options = item.get("options")
+    if not isinstance(raw_options, list):
+        return None
+
+    options = [str(o).strip() for o in raw_options if str(o).strip()]
+    options = options[:4]
+    if len(options) != 4:
+        return None
+
+    answer = str(item.get("answer", "")).strip().upper()
+    if answer in {"A", "B", "C", "D"}:
+        answer_letter = answer
+    else:
+        answer_map = {options[0].lower(): "A", options[1].lower(): "B", options[2].lower(): "C", options[3].lower(): "D"}
+        answer_letter = answer_map.get(answer.lower())
+        if answer_letter is None:
+            return None
+
+    explanation = str(item.get("explanation", "")).strip()
+    if not include_explanations:
+        explanation = ""
+
+    return {
+        "question": question,
+        "options": options,
+        "answer": answer_letter,
+        "explanation": explanation,
+    }
+
+
+def _normalize_tf_item(item, include_explanations: bool):
+    if not isinstance(item, dict):
+        return None
+
+    question = str(item.get("question", "")).strip()
+    if not question:
+        return None
+
+    raw_answer = item.get("answer")
+    if isinstance(raw_answer, bool):
+        answer = raw_answer
+    elif isinstance(raw_answer, str):
+        lowered = raw_answer.strip().lower()
+        if lowered in {"true", "t", "yes"}:
+            answer = True
+        elif lowered in {"false", "f", "no"}:
+            answer = False
+        else:
+            return None
+    else:
+        return None
+
+    explanation = str(item.get("explanation", "")).strip()
+    if not include_explanations:
+        explanation = ""
+
+    return {
+        "question": question,
+        "answer": answer,
+        "explanation": explanation,
+    }
+
+
+def _extract_json_object(raw_text: str):
+    cleaned = (raw_text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"```$", "", cleaned).strip()
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        snippet = cleaned[start:end + 1]
         try:
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            
-            # Create better prompts for different difficulty levels
-            difficulty_instructions = {
-                "Easy": "Make questions straightforward with direct answers from the text. Focus on basic concepts and definitions.",
-                "Medium": "Create questions that require understanding and application of concepts. Mix direct facts with some inference.",
-                "Hard": "Generate challenging questions requiring analysis, synthesis, and deeper understanding. Include questions that test critical thinking."
-            }
-            
-            difficulty_text = difficulty_instructions.get(difficulty, difficulty_instructions["Medium"])
-            explanation_text = "with detailed explanations (2-3 sentences each)" if include_explanations else "without explanations"
-            
-            # Enhanced prompt for better question quality
-            system_prompt = f"""You are an expert educator creating high-quality quiz questions from educational content.
+            return json.loads(snippet)
+        except Exception:
+            return None
+    return None
+
+
+def _classify_openai_error(exc: Exception) -> str:
+    msg = str(exc).lower()
+    if "insufficient_quota" in msg or "exceeded your current quota" in msg:
+        return "insufficient_quota"
+    if "authentication" in msg or "api key" in msg or "401" in msg:
+        return "auth_error"
+    if "rate" in msg or "429" in msg:
+        return "rate_limited"
+    return "openai_error"
+
+
+def _classify_gemini_error(exc: Exception) -> str:
+    msg = str(exc).lower()
+    if "not found" in msg or "models/" in msg and "generatecontent" in msg:
+        return "invalid_model"
+    if "quota" in msg or "429" in msg or "resource_exhausted" in msg:
+        return "insufficient_quota"
+    if "api key" in msg or "permission" in msg or "401" in msg or "403" in msg:
+        return "auth_error"
+    if "rate" in msg:
+        return "rate_limited"
+    return "gemini_error"
+
+
+def _gemini_model_candidates() -> list:
+    configured = (os.getenv('GEMINI_MODEL') or '').strip()
+    candidates = []
+    if configured:
+        candidates.append(configured)
+
+    # Common stable fallbacks for generateContent.
+    for m in ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro-latest", "gemini-1.5-pro"]:
+        if m not in candidates:
+            candidates.append(m)
+
+    # Discover account-available models dynamically when possible.
+    if genai is not None:
+        try:
+            listed = []
+            for model in genai.list_models():
+                methods = getattr(model, "supported_generation_methods", []) or []
+                name = getattr(model, "name", "") or ""
+                if "generateContent" in methods and "gemini" in name.lower():
+                    listed.append(name.replace("models/", ""))
+            for m in listed:
+                if m not in candidates:
+                    candidates.append(m)
+        except Exception:
+            pass
+
+    return candidates
+
+
+def _build_generation_prompts(mcq_count: int, tf_count: int, difficulty: str, include_explanations: bool, text: str):
+    difficulty_instructions = {
+        "Easy": "Make questions straightforward with direct answers from the text. Focus on basic concepts and definitions.",
+        "Medium": "Create questions that require understanding and application of concepts. Mix direct facts with some inference.",
+        "Hard": "Generate challenging questions requiring analysis, synthesis, and deeper understanding. Include questions that test critical thinking."
+    }
+    difficulty_text = difficulty_instructions.get(difficulty, difficulty_instructions["Medium"])
+    explanation_text = "with detailed explanations (2-3 sentences each)" if include_explanations else "without explanations"
+
+    system_prompt = f"""You are an expert educator creating high-quality quiz questions from educational content.
 
 INSTRUCTIONS:
 1. Generate exactly {mcq_count} multiple-choice questions and {tf_count} true/false questions
@@ -296,6 +440,7 @@ INSTRUCTIONS:
 5. Include {explanation_text}
 6. Base all questions strictly on the provided text content
 7. Avoid ambiguous or trick questions
+8. Return only JSON, no markdown and no commentary
 
 DIFFICULTY LEVEL: {difficulty}
 
@@ -318,79 +463,161 @@ RESPONSE FORMAT - Return ONLY valid JSON with this exact structure:
   ]
 }}"""
 
-            user_content = f"TEXT TO CREATE QUESTIONS FROM:\n\n{text[:12000]}"  # Increased limit for better context
-            
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ],
-                temperature=0.7,  # Slightly higher for more creative questions
-                max_tokens=4000,  # Increased for detailed explanations
-            )
-            
-            content = response.choices[0].message.content if response.choices else "{}"
-            if isinstance(content, str):
-                cleaned = content.strip()
-                if cleaned.startswith("```"):
-                    cleaned = cleaned.strip("`")
-                    if cleaned.startswith("json"):
-                        cleaned = cleaned[4:].strip()
-                content = cleaned
-            
+    user_content = f"TEXT TO CREATE QUESTIONS FROM:\n\n{text[:12000]}"
+    return system_prompt, user_content
+
+
+def _validate_model_output(data, mcq_count: int, tf_count: int, include_explanations: bool, text: str, difficulty: str):
+    if not isinstance(data, dict):
+        return None
+
+    raw_mc = data.get("multiple_choice", [])
+    raw_tf = data.get("true_false", [])
+
+    validated_mc = []
+    for q in raw_mc[:mcq_count]:
+        normalized = _normalize_mcq_item(q, include_explanations=include_explanations)
+        if normalized is not None:
+            validated_mc.append(normalized)
+
+    validated_tf = []
+    for q in raw_tf[:tf_count]:
+        normalized = _normalize_tf_item(q, include_explanations=include_explanations)
+        if normalized is not None:
+            validated_tf.append(normalized)
+
+    if len(validated_mc) < mcq_count or len(validated_tf) < tf_count:
+        fallback = generate_fallback_questions(
+            text,
+            mcq_count=max(0, mcq_count - len(validated_mc)),
+            tf_count=max(0, tf_count - len(validated_tf)),
+            difficulty=difficulty,
+            include_explanations=include_explanations,
+        )
+        validated_mc.extend((fallback.get("multiple_choice") or [])[: max(0, mcq_count - len(validated_mc))])
+        validated_tf.extend((fallback.get("true_false") or [])[: max(0, tf_count - len(validated_tf))])
+
+    if validated_mc or validated_tf:
+        return {
+            "multiple_choice": validated_mc[:mcq_count],
+            "true_false": validated_tf[:tf_count],
+        }
+    return None
+
+
+def generate_questions(text, mcq_count: int = 10, tf_count: int = 0, difficulty: str = "Medium", include_explanations: bool = True):
+    """Generate questions using OpenAI if configured; otherwise use a simple fallback.
+
+    Args:
+        text: Source text to generate questions from.
+        mcq_count: Number of multiple-choice questions (>=1).
+        tf_count: Number of true/false questions (>=0). If 0, return an empty list for true_false.
+        difficulty: Difficulty level (Easy, Medium, Hard).
+        include_explanations: Whether to include explanations for answers.
+
+    Returns:
+        dict: {"multiple_choice": [...], "true_false": [...], "source": "openai|fallback"}
+    """
+    # Read latest keys at request-time so setting env vars after startup still works.
+    provider = get_ai_provider()
+    openai_api_key = get_openai_api_key()
+    gemini_api_key = get_gemini_api_key()
+    preferred = ["gemini", "openai"] if provider == "auto" else [provider, "openai" if provider == "gemini" else "gemini"]
+    system_prompt, user_content = _build_generation_prompts(mcq_count, tf_count, difficulty, include_explanations, text)
+
+    model_errors = []
+
+    for p in preferred:
+        if p == "gemini":
+            if not gemini_api_key or genai is None:
+                continue
             try:
-                data = json.loads(content)
-                if isinstance(data, dict):
-                    # Validate and clean the response
-                    mc = data.get("multiple_choice", [])
-                    tf = data.get("true_false", [])
-                    
-                    # Ensure correct counts
-                    mc = mc[:mcq_count] if len(mc) > mcq_count else mc
-                    tf = tf[:tf_count] if len(tf) > tf_count else tf
-                    
-                    # Validate MCQ structure
-                    validated_mc = []
-                    for q in mc:
-                        if (isinstance(q, dict) and 
-                            'question' in q and 
-                            'options' in q and 
-                            'answer' in q and
-                            len(q.get('options', [])) == 4):
-                            validated_mc.append(q)
-                    
-                    # Validate TF structure
-                    validated_tf = []
-                    for q in tf:
-                        if (isinstance(q, dict) and 
-                            'question' in q and 
-                            'answer' in q and
-                            isinstance(q['answer'], bool)):
-                            validated_tf.append(q)
-                    
-                    result = {
-                        "multiple_choice": validated_mc,
-                        "true_false": validated_tf,
-                        "source": "openai"
-                    }
-                    
-                    # If we got valid questions, return them
-                    if validated_mc or validated_tf:
-                        return result
-                    
-            except json.JSONDecodeError:
-                pass
-            
-            # If OpenAI failed to generate proper JSON, fall back
-            return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations)
-            
-        except Exception as e:
-            print(f"OpenAI API Error: {e}")
-            return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations)
-    
-    # No API key or SDK -> fallback
-    return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations)
+                genai.configure(api_key=gemini_api_key)
+                candidates = _gemini_model_candidates()
+                gemini_error = None
+                for gemini_model in candidates:
+                    try:
+                        model = genai.GenerativeModel(gemini_model)
+                        response = model.generate_content(
+                            [system_prompt, "\n\n", user_content],
+                            generation_config={
+                                "temperature": 0.35,
+                                "max_output_tokens": 4000,
+                                "response_mime_type": "application/json",
+                            },
+                        )
+
+                        content = (getattr(response, "text", "") or "").strip()
+                        data = _extract_json_object(content)
+                        validated = _validate_model_output(data, mcq_count, tf_count, include_explanations, text, difficulty)
+                        if validated:
+                            validated["source"] = "gemini"
+                            validated["model"] = gemini_model
+                            return validated
+                    except Exception as e:
+                        gemini_error = e
+                        # Try next model if current one is unavailable.
+                        if _classify_gemini_error(e) == "invalid_model":
+                            continue
+                        raise
+
+                if gemini_error is not None:
+                    raise gemini_error
+                model_errors.append("invalid_model_response")
+            except Exception as e:
+                print(f"Gemini API Error: {e}")
+                model_errors.append(_classify_gemini_error(e))
+            continue
+
+        if p == "openai":
+            if not openai_api_key or OpenAI is None:
+                continue
+            try:
+                client = OpenAI(api_key=openai_api_key)
+                openai_model = (os.getenv('OPENAI_MODEL') or 'gpt-4o-mini').strip()
+                response = client.chat.completions.create(
+                    model=openai_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    temperature=0.35,
+                    max_tokens=4000,
+                    response_format={"type": "json_object"},
+                )
+
+                content = response.choices[0].message.content if response.choices else "{}"
+                data = _extract_json_object(content if isinstance(content, str) else "{}")
+                validated = _validate_model_output(data, mcq_count, tf_count, include_explanations, text, difficulty)
+                if validated:
+                    validated["source"] = "openai"
+                    return validated
+                model_errors.append("invalid_model_response")
+            except Exception as e:
+                print(f"OpenAI API Error: {e}")
+                model_errors.append(_classify_openai_error(e))
+            continue
+
+    # If all configured providers failed, fallback with the most relevant reason.
+    if model_errors:
+        return generate_fallback_questions(
+            text,
+            mcq_count,
+            tf_count,
+            difficulty,
+            include_explanations,
+            fallback_reason=model_errors[0],
+        )
+
+    # No valid provider key/sdk configured.
+    if provider == "gemini":
+        reason = "missing_gemini_key" if not gemini_api_key else "gemini_sdk_unavailable"
+    elif provider == "openai":
+        reason = "missing_api_key" if not openai_api_key else "openai_sdk_unavailable"
+    else:
+        reason = "missing_provider_key"
+
+    return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations, fallback_reason=reason)
 
 
 def simple_fallback_questions(text: str, mcq_count: int = 10, tf_count: int = 0, difficulty: str = "Medium", include_explanations: bool = True):
@@ -400,7 +627,14 @@ def simple_fallback_questions(text: str, mcq_count: int = 10, tf_count: int = 0,
     """
     return generate_fallback_questions(text, mcq_count, tf_count, difficulty, include_explanations)
 
-def generate_fallback_questions(text: str, mcq_count: int, tf_count: int, difficulty: str, include_explanations: bool):
+def generate_fallback_questions(
+    text: str,
+    mcq_count: int,
+    tf_count: int,
+    difficulty: str,
+    include_explanations: bool,
+    fallback_reason: str = "",
+):
     """Improved fallback question generator."""
     # Basic sentence splitting
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
@@ -421,28 +655,33 @@ def generate_fallback_questions(text: str, mcq_count: int, tf_count: int, diffic
     if len(keywords) < 8:
         keywords.extend(["Process", "System", "Method", "Theory", "Analysis", "Concept", "Model", "Framework"])
     
-    # Generate MCQs
+    # Generate MCQs grounded in sentence-level cloze prompts.
     mcq = []
     for i in range(mcq_count):
         sentence = head[i % len(head)]
-        # Create more natural questions
-        question_templates = [
-            f"Based on the text, what is primarily discussed in: '{sentence[:80]}...'?",
-            f"Which concept is most relevant to: '{sentence[:80]}...'?",
-            f"What key term best relates to: '{sentence[:80]}...'?",
-            f"According to the content, what is emphasized in: '{sentence[:80]}...'?"
-        ]
-        
-        question = question_templates[i % len(question_templates)]
-        
-        # Create 4 unique options
-        opts = []
-        correct_idx = i % 4
-        
-        for j in range(4):
-            word_idx = (i * 4 + j) % len(keywords)
-            opts.append(keywords[word_idx])
-        
+        sentence_words = re.findall(r"[A-Za-z][A-Za-z\-]{3,}", sentence)
+        answer_text = sentence_words[min(len(sentence_words) - 1, max(0, i % max(1, len(sentence_words))))] if sentence_words else keywords[i % len(keywords)]
+
+        blanked = re.sub(rf"\b{re.escape(answer_text)}\b", "_____", sentence, count=1, flags=re.IGNORECASE)
+        if blanked == sentence:
+            blanked = sentence[:100] + ("..." if len(sentence) > 100 else "")
+            question = f"According to the passage, which term best fits this statement: '{blanked}'"
+        else:
+            question = f"According to the passage, which term correctly fills the blank: '{blanked}'"
+
+        opts = [answer_text.title()]
+        cursor = (i * 3) % len(keywords)
+        while len(opts) < 4:
+            candidate = keywords[cursor % len(keywords)]
+            cursor += 1
+            if candidate.lower() not in {o.lower() for o in opts}:
+                opts.append(candidate)
+
+        # Deterministic shuffle to avoid always A while keeping repeatability.
+        shift = i % 4
+        opts = opts[shift:] + opts[:shift]
+        correct_idx = opts.index(answer_text.title()) if answer_text.title() in opts else 0
+
         # Ensure all options are unique
         opts = list(dict.fromkeys(opts))
         while len(opts) < 4:
@@ -489,7 +728,12 @@ def generate_fallback_questions(text: str, mcq_count: int, tf_count: int, diffic
             "explanation": explanation
         })
 
-    return {"multiple_choice": mcq, "true_false": tf, "source": "fallback"}
+    return {
+        "multiple_choice": mcq,
+        "true_false": tf,
+        "source": "fallback",
+        "fallback_reason": fallback_reason,
+    }
 
 if __name__ == '__main__':
     app.run(debug=True, host='127.0.0.1', port=5000)

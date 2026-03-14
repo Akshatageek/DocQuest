@@ -34,6 +34,34 @@
             font-size: 1.1rem;
         }
 
+        .source-badge {
+            display: inline-block;
+            margin-top: 0.75rem;
+            padding: 0.35rem 0.8rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .source-ai {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+        }
+
+        .source-fallback {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fcd34d;
+        }
+
+        .source-note {
+            margin-top: 0.55rem;
+            color: #6b7280;
+            font-size: 0.92rem;
+        }
+
         .section-title {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -244,6 +272,26 @@
             <div class="results-header">
                 <h1>🎯 Quiz Results</h1>
                 <p>Review your answers and check explanations</p>
+                {% if questions and questions.source is defined %}
+                    {% if questions.source == 'openai' %}
+                        <div class="source-badge source-ai">AI Mode: OpenAI</div>
+                    {% elif questions.source == 'gemini' %}
+                        <div class="source-badge source-ai">AI Mode: Gemini</div>
+                    {% else %}
+                        <div class="source-badge source-fallback">Fallback Mode: Basic Generator</div>
+                        {% if questions.fallback_reason == 'insufficient_quota' %}
+                            <div class="source-note">AI provider quota/billing limit reached. Questions are from local fallback generator.</div>
+                        {% elif questions.fallback_reason == 'missing_api_key' %}
+                            <div class="source-note">API key not loaded. Add OPENAI_API_KEY to .env and restart server.</div>
+                        {% elif questions.fallback_reason == 'missing_gemini_key' %}
+                            <div class="source-note">Gemini key not loaded. Add GEMINI_API_KEY to .env and restart server.</div>
+                        {% elif questions.fallback_reason == 'missing_provider_key' %}
+                            <div class="source-note">No provider key found. Add GEMINI_API_KEY or OPENAI_API_KEY.</div>
+                        {% elif questions.fallback_reason == 'auth_error' %}
+                            <div class="source-note">AI API key is invalid or revoked. Update your provider key and restart server.</div>
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
             </div>
 
             {% if questions and questions.error %}

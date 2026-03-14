@@ -1,5 +1,7 @@
 flask
 openai
+google-generativeai
 werkzeug
 PyPDF2
 reportlab
+python-dotenv

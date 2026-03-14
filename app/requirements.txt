@@ -1,6 +1,0 @@
-flask
-openai
-werkzeug
-PyPDF2
-reportlab
-gunicorn
